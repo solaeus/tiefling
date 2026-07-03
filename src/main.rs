@@ -69,7 +69,7 @@ struct AppState {
 
 impl AppState {
     fn new(pwd_path: PathBuf) -> Self {
-        let mut root = FileState::new(pwd_path);
+        let mut root = FileState::new(pwd_path, 0);
 
         root.selected = true;
         root.expand_selected();
@@ -85,18 +85,20 @@ struct FileState {
     selected: bool,
     marked: bool,
     expanded: bool,
+    depth: u16,
     children: Vec<FileState>,
     visible_children: u16,
 }
 
 impl FileState {
-    fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf, depth: u16) -> Self {
         Self {
             dir: path.is_dir(),
             path,
             selected: false,
             marked: false,
             expanded: false,
+            depth,
             children: Vec::new(),
             visible_children: 0,
         }
@@ -133,7 +135,7 @@ impl FileState {
 
             for result in read_path {
                 let entry = result.expect(&self.error_message());
-                let listing = FileState::new(entry.path());
+                let listing = FileState::new(entry.path(), self.depth + 1);
 
                 self.children.push(listing);
             }
@@ -307,15 +309,18 @@ impl StatefulWidget for FileWidget {
             Constraint::Length(1),
             Constraint::Length(state.visible_children as u16),
         ]));
-        let [expansion_symbol_area, name_text_area] = name_area.layout(&Layout::horizontal([
-            Constraint::Length(2),
-            Constraint::Fill(1),
-        ]));
+        let [_indent_area, icon_area, _spacing, name_text_area] =
+            name_area.layout(&Layout::horizontal([
+                Constraint::Length(state.depth * 2),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+            ]));
 
         if state.dir {
-            let expansion_symbol = if state.expanded { "🗁 " } else { "🖿 " };
+            let expansion_symbol = if state.expanded { "🗁" } else { "🖿" };
 
-            Span::raw(expansion_symbol).render(expansion_symbol_area, buffer);
+            Span::raw(expansion_symbol).render(icon_area, buffer);
         }
 
         let mut name_text = Span::raw(state.path.file_name().unwrap().to_string_lossy());
