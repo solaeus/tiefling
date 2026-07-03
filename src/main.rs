@@ -86,7 +86,7 @@ struct FileState {
     marked: bool,
     expanded: bool,
     children: Vec<FileState>,
-    visible_children: usize,
+    visible_children: u16,
 }
 
 impl FileState {
@@ -105,12 +105,12 @@ impl FileState {
     fn expand_selected(&mut self) -> bool {
         if self.selected {
             self.expand();
-            self.visible_children += self.children.len();
+            self.visible_children += self.children.len() as u16;
 
             return true;
         }
 
-        let child_count = self.children.len();
+        let child_count = self.children.len() as u16;
 
         for child in &mut self.children {
             if child.expand_selected() {
@@ -123,31 +123,40 @@ impl FileState {
         false
     }
 
-    fn expand(&mut self) {
+    fn expand(&mut self) -> u16 {
         if self.expanded || !self.path.is_dir() {
-            return;
+            return 0;
         }
 
-        if !self.children.is_empty() {
-            self.expanded = true;
+        let lines_added = if self.children.is_empty() {
+            let read_path = read_dir(&self.path).expect(&self.error_message());
 
-            return;
-        }
+            for result in read_path {
+                let entry = result.expect(&self.error_message());
+                let listing = FileState::new(entry.path());
 
-        let read_path = read_dir(&self.path).expect(&self.error_message());
+                self.children.push(listing);
+            }
 
-        for result in read_path {
-            let entry = result.expect(&self.error_message());
-            let listing = FileState::new(entry.path());
+            self.children.len() as u16
+        } else {
+            let mut total_children = 0;
 
-            self.children.push(listing);
-        }
+            for file_state in &self.children {
+                total_children += file_state.visible_children;
+            }
+
+            total_children
+        };
 
         self.expanded = true;
+
+        lines_added
     }
 
     fn collapse(&mut self) {
         self.expanded = false;
+        self.visible_children = 0;
     }
 
     fn select_next_child(&mut self) {
@@ -173,15 +182,21 @@ impl FileState {
             false
         }
 
+        if self.selected && self.expanded && !self.children.is_empty() {
+            self.selected = false;
+            self.select_first_child();
+
+            return;
+        }
+
+        self.selected = false;
         let mut select_next = false;
 
         if !advance(self, &mut select_next) {
-            self.selected = false;
-
             if select_next {
-                self.select_last_child();
-            } else {
                 self.select_first_child();
+            } else {
+                self.select_last_child();
             }
         }
     }
@@ -209,11 +224,23 @@ impl FileState {
             false
         }
 
+        if self.selected && self.expanded && !self.children.is_empty() {
+            self.selected = false;
+            self.select_last_child();
+
+            return;
+        }
+
         let mut select_next = false;
 
         if !retreat(self, &mut select_next) {
             self.selected = false;
-            self.select_last_child();
+
+            if select_next {
+                self.select_last_child();
+            } else {
+                self.select_first_child();
+            }
         }
     }
 
@@ -258,7 +285,7 @@ impl StatefulWidget for AppWidget {
     type State = AppState;
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
-        let [pwd_area, child_area] = area.layout(&Layout::vertical([
+        let [title_area, child_area] = area.layout(&Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(0),
         ]));
@@ -278,9 +305,8 @@ impl StatefulWidget for FileWidget {
     {
         let [name_area, child_area] = area.layout(&Layout::vertical([
             Constraint::Length(1),
-            Constraint::Min(0),
+            Constraint::Length(state.visible_children as u16),
         ]));
-
         let [expansion_symbol_area, name_text_area] = name_area.layout(&Layout::horizontal([
             Constraint::Length(2),
             Constraint::Fill(1),
@@ -300,15 +326,27 @@ impl StatefulWidget for FileWidget {
 
         name_text.render(name_text_area, buffer);
 
-        if state.expanded {
-            let child_areas = child_area.layout_vec(&Layout::vertical(vec![
-                Constraint::Length(1);
-                state.visible_children
-            ]));
+        if !state.expanded {
+            return;
+        }
 
-            for (child_state, child_area) in state.children.iter_mut().zip(child_areas) {
-                FileWidget.render(child_area, buffer, child_state);
+        let mut next_y = child_area.y;
+
+        for file_state in &mut state.children {
+            if next_y >= child_area.bottom() {
+                break;
             }
+
+            let height = file_state.visible_children + 1;
+            let row = Rect {
+                x: area.x,
+                y: next_y,
+                width: area.width,
+                height,
+            };
+            next_y += height;
+
+            FileWidget.render(row, buffer, file_state);
         }
     }
 }
