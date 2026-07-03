@@ -3,15 +3,17 @@ use std::{
     error::Error,
     fs::read_dir,
     io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant, SystemTime},
 };
 
+use devicons::FileIcon;
 use ratatui::{
-    DefaultTerminal, Frame,
+    DefaultTerminal,
     crossterm::event::{self, KeyCode},
     layout::{Constraint, Layout},
     prelude::*,
+    text::ToSpan,
 };
 
 const TARGET_FPS: u64 = 30;
@@ -24,8 +26,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut app_state = AppState::new(pwd);
 
     ratatui::run(|terminal| run(terminal, &mut app_state))?;
-
-    println!("{app_state:#?}");
 
     Ok(())
 }
@@ -105,6 +105,7 @@ impl AppState {
 #[derive(Debug)]
 struct FileState {
     path: PathBuf,
+    icon: Icon,
     dir: bool,
     selected: bool,
     expanded: bool,
@@ -120,6 +121,7 @@ impl FileState {
         Self {
             dir: path.is_dir(),
             modified: path.metadata().unwrap().modified().unwrap(),
+            icon: Icon::new(&path),
             path,
             selected: false,
             marked: false,
@@ -173,14 +175,24 @@ impl FileState {
             }
 
             self.visible_children = self.children.len() as u16;
+
+            for file_state in &self.children {
+                self.visible_children += file_state.visible_children;
+            }
+
             self.expanded = true;
 
             return;
         }
 
-        for child_state in &mut self.children {
-            child_state.expand_selected();
-            self.visible_children += child_state.visible_children;
+        if self.expanded {
+            self.visible_children = self.children.len() as u16;
+
+            for file_state in &mut self.children {
+                file_state.expand_selected();
+
+                self.visible_children += file_state.visible_children;
+            }
         }
     }
 
@@ -190,20 +202,20 @@ impl FileState {
         }
 
         if self.selected {
-            self.visible_children = 0;
             self.expanded = false;
+            self.visible_children = 0;
 
             return;
         }
 
-        for child_state in &mut self.children {
-            child_state.collapse_selected();
-        }
-    }
+        if self.expanded {
+            self.visible_children = self.children.len() as u16;
 
-    fn collapse(&mut self) {
-        self.expanded = false;
-        self.visible_children = 0;
+            for child_state in &mut self.children {
+                child_state.collapse_selected();
+                self.visible_children += child_state.visible_children;
+            }
+        }
     }
 
     fn select_next_child(&mut self) {
@@ -307,20 +319,6 @@ impl FileState {
         }
     }
 
-    fn get_selected_mut(&mut self) -> Option<&mut FileState> {
-        if self.selected {
-            return Some(self);
-        }
-
-        for child in &mut self.children {
-            if let Some(selected) = child.get_selected_mut() {
-                return Some(selected);
-            }
-        }
-
-        None
-    }
-
     fn error_message(&self) -> String {
         format!("I/O Error: Failed to read {}", self.path.display())
     }
@@ -355,43 +353,49 @@ struct FileWidget;
 impl StatefulWidget for FileWidget {
     type State = FileState;
 
-    fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State)
+    fn render(self, area: Rect, buffer: &mut Buffer, file_state: &mut Self::State)
     where
         Self: Sized,
     {
         let [name_area, child_area] = area.layout(&Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(state.visible_children as u16),
+            Constraint::Length(file_state.visible_children as u16),
         ]));
+        let depth = if file_state.depth == 0 {
+            0
+        } else {
+            file_state.depth * 2 + 2
+        };
         let [_indent_area, icon_area, _spacing, name_text_area] =
             name_area.layout(&Layout::horizontal([
-                Constraint::Length(state.depth * 2),
+                Constraint::Length(depth),
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Fill(1),
             ]));
 
-        if state.dir {
-            let expansion_symbol = if state.expanded { "🗁" } else { "🖿" };
+        file_state
+            .icon
+            .glyph
+            .to_span()
+            .style(Style::default().fg(file_state.icon.color))
+            .render(icon_area, buffer);
 
-            Span::raw(expansion_symbol).render(icon_area, buffer);
-        }
+        let mut name_text = Span::raw(file_state.path.file_name().unwrap().to_string_lossy());
 
-        let mut name_text = Span::raw(state.path.file_name().unwrap().to_string_lossy());
-
-        if state.selected {
+        if file_state.selected {
             name_text = name_text.style(Style::default().bold());
         }
 
         name_text.render(name_text_area, buffer);
 
-        if !state.expanded {
+        if !file_state.expanded {
             return;
         }
 
         let mut next_y = child_area.y;
 
-        for file_state in &mut state.children {
+        for file_state in &mut file_state.children {
             if next_y >= child_area.bottom() {
                 break;
             }
@@ -406,6 +410,26 @@ impl StatefulWidget for FileWidget {
             next_y += height;
 
             FileWidget.render(row, buffer, file_state);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Icon {
+    glyph: char,
+    color: Color,
+}
+
+impl Icon {
+    fn new(path: &Path) -> Self {
+        let devicon = FileIcon::from(path);
+        let red = devicon.color[1..3].parse::<u8>().unwrap_or(255);
+        let green = devicon.color[3..5].parse::<u8>().unwrap_or(255);
+        let blue = devicon.color[5..7].parse::<u8>().unwrap_or(255);
+
+        Self {
+            glyph: devicon.icon,
+            color: Color::Rgb(red, green, blue),
         }
     }
 }
