@@ -1,5 +1,6 @@
 use std::{fs::read_dir, io, path::PathBuf, range::Range};
 
+#[derive(Debug)]
 pub struct Files {
     files: Vec<File>,
     children: Vec<FileId>,
@@ -90,6 +91,7 @@ impl Files {
     }
 }
 
+#[derive(Debug)]
 pub struct File {
     pub path: PathBuf,
     pub kind: FileKind,
@@ -110,10 +112,10 @@ impl File {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FileId(u32);
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FileChildren(Range<u32>);
 
 impl FileChildren {
@@ -133,6 +135,7 @@ impl FileChildren {
     }
 }
 
+#[derive(Debug)]
 pub enum FileKind {
     Regular,
     Directory(Option<FileChildren>),

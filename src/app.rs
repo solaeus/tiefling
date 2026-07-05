@@ -7,6 +7,7 @@ use ratatui::{
 
 use crate::{models::Files, views::FileTree};
 
+#[derive(Debug)]
 pub struct App {
     files: Files,
 }
@@ -36,6 +37,8 @@ impl App {
                 _ => {}
             }
         }
+
+        println!("{self:#?}");
 
         Ok(())
     }
