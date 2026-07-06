@@ -2,12 +2,10 @@ mod app;
 mod models;
 mod views;
 
-use std::error::Error;
+use std::io;
 
 use crate::app::App;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    ratatui::run(|terminal| App::new().run(terminal))?;
-
-    Ok(())
+fn main() -> Result<(), io::Error> {
+    ratatui::run(|terminal| App::new().run(terminal))
 }

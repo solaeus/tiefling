@@ -2,7 +2,7 @@ use std::{env::current_dir, io};
 
 use ratatui::{
     DefaultTerminal,
-    crossterm::event::{self, KeyCode},
+    crossterm::event::{self, KeyCode, KeyEvent},
 };
 
 use crate::{models::Files, views::FileTree};
@@ -22,24 +22,38 @@ impl App {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), io::Error> {
         let root_file_id = self.files.open(current_dir()?, 0)?;
 
-        self.files.expand(root_file_id)?;
+        self.files.expand(root_file_id, 0)?;
 
         loop {
             terminal.draw(|frame| {
-                frame.render_stateful_widget(FileTree, frame.area(), &mut self.files);
+                frame.render_widget(FileTree::new(&self.files), frame.area());
             })?;
 
-            match event::read()?.as_key_press_event() {
-                Some(key_press) if key_press.modifiers.is_empty() => match key_press.code {
-                    KeyCode::Esc | KeyCode::Char('q') => break,
-                    _ => {}
-                },
-                _ => {}
+            if let Some(key_press) = event::read()?.as_key_press_event() {
+                let quit = self.handle_input(key_press)?;
+
+                if quit {
+                    break;
+                }
             }
         }
 
-        println!("{self:#?}");
-
         Ok(())
+    }
+
+    fn handle_input(&mut self, event: KeyEvent) -> Result<bool, io::Error> {
+        if !event.modifiers.is_empty() {
+            return Ok(false);
+        }
+
+        match event.code {
+            KeyCode::Char('q') => return Ok(true),
+            KeyCode::Down => self.files.move_cursor_down(),
+            KeyCode::Up => self.files.move_cursor_up(),
+            KeyCode::Right => self.files.expand_under_cursor()?,
+            _ => {}
+        }
+
+        Ok(false)
     }
 }

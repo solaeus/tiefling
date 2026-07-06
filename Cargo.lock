@@ -1384,6 +1384,7 @@ dependencies = [
 name = "tiefling"
 version = "0.1.0"
 dependencies = [
+ "log",
  "ratatui",
 ]
 

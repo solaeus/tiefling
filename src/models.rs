@@ -5,6 +5,7 @@ pub struct Files {
     files: Vec<File>,
     children: Vec<FileId>,
     visible: Vec<FileId>,
+    cursor: Option<usize>,
 }
 
 impl Files {
@@ -13,11 +14,16 @@ impl Files {
             files: Vec::new(),
             children: Vec::new(),
             visible: Vec::new(),
+            cursor: None,
         }
     }
 
     pub fn visible(&self) -> &Vec<FileId> {
         &self.visible
+    }
+
+    pub fn cursor(&self) -> Option<usize> {
+        self.cursor
     }
 
     pub fn open(&mut self, path: PathBuf, depth: u8) -> Result<FileId, io::Error> {
@@ -55,7 +61,7 @@ impl Files {
         &self.children[children.as_index_range()]
     }
 
-    pub fn expand(&mut self, id: FileId) -> Result<(), io::Error> {
+    pub fn expand(&mut self, id: FileId, visible_index: usize) -> Result<(), io::Error> {
         let file = self.get_file_mut(&id);
 
         if file.expanded {
@@ -75,13 +81,16 @@ impl Files {
             FileKind::Directory(None) => {
                 let dir = read_dir(&file.path)?;
                 let depth = file.depth + 1;
+                let mut next_visible_index = visible_index;
 
                 for read_result in dir {
                     let entry = read_result?;
                     let file_id = self.open(entry.path(), depth)?;
 
                     self.children.push(file_id);
-                    self.visible.push(file_id);
+                    self.visible.insert(next_visible_index, file_id);
+
+                    next_visible_index += 1;
                 }
             }
             _ => (),
@@ -89,12 +98,42 @@ impl Files {
 
         Ok(())
     }
+
+    pub fn move_cursor_down(&mut self) {
+        if let Some(index) = self.cursor
+            && index < self.visible.len() - 1
+        {
+            self.cursor = Some(index + 1);
+        } else {
+            self.cursor = Some(0);
+        }
+    }
+
+    pub fn move_cursor_up(&mut self) {
+        if let Some(index) = self.cursor
+            && index > 0
+        {
+            self.cursor = Some(index - 1);
+        } else {
+            self.cursor = Some(self.visible.len() - 1);
+        }
+    }
+
+    pub fn expand_under_cursor(&mut self) -> Result<(), io::Error> {
+        let Some(cursor_index) = self.cursor else {
+            return Ok(());
+        };
+        let file_id = self.visible[cursor_index];
+
+        self.expand(file_id, cursor_index + 1)
+    }
 }
 
 #[derive(Debug)]
 pub struct File {
     pub path: PathBuf,
     pub kind: FileKind,
+    pub children: FileChildren,
     pub depth: u8,
     pub expanded: bool,
     pub marked: bool,
@@ -105,6 +144,7 @@ impl File {
         Self {
             path,
             kind,
+            children: FileChildren::empty(),
             depth,
             expanded: false,
             marked: false,
@@ -112,7 +152,7 @@ impl File {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileId(u32);
 
 #[derive(Clone, Copy, Debug)]
