@@ -5,16 +5,18 @@ use ratatui::{
     crossterm::event::{self, KeyCode, KeyEvent},
 };
 
-use crate::{models::Files, views::FileTree};
+use crate::{config::Config, models::Files, views::FileTree};
 
 #[derive(Debug)]
 pub struct App {
+    config: Config,
     files: Files,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
+            config,
             files: Files::new(),
         }
     }
@@ -26,7 +28,7 @@ impl App {
 
         loop {
             terminal.draw(|frame| {
-                frame.render_widget(FileTree::new(&self.files), frame.area());
+                frame.render_stateful_widget(FileTree, frame.area(), &mut self.files);
             })?;
 
             if let Some(key_press) = event::read()?.as_key_press_event() {

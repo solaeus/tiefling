@@ -1,26 +1,30 @@
 use log::error;
-use ratatui::prelude::*;
+use ratatui::{
+    prelude::*,
+    widgets::{Scrollbar, ScrollbarOrientation},
+};
 
 use crate::models::{File, Files};
 
-pub struct FileTree<'a> {
-    files: &'a Files,
-}
+pub struct FileTree;
 
-impl<'a> FileTree<'a> {
-    pub fn new(files: &'a Files) -> Self {
-        Self { files }
-    }
-}
+impl StatefulWidget for FileTree {
+    type State = Files;
 
-impl<'a> Widget for FileTree<'a> {
-    fn render(self, area: Rect, buffer: &mut Buffer) {
-        for (y_offset, file_id) in self.files.visible().iter().enumerate() {
+    fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
+        let height = area.height as usize;
+        let area_row_count = height - 1;
+        let scroll_offset = state.cursor().unwrap_or(0).saturating_sub(area_row_count);
+
+        for (y_offset, file_id) in state
+            .visible()
+            .iter()
+            .skip(scroll_offset)
+            .take(height)
+            .enumerate()
+        {
+            let index = y_offset + scroll_offset;
             let y_offset = y_offset as u16;
-
-            if y_offset > area.height {
-                break;
-            }
 
             let file_area = Rect {
                 x: area.x,
@@ -28,15 +32,22 @@ impl<'a> Widget for FileTree<'a> {
                 width: area.width,
                 height: 1,
             };
-            let file = self.files.get_file(file_id);
-            let cursor = self.files.cursor().is_some_and(|visible_index| {
-                let cursor_file_id = self.files.visible()[visible_index];
-
-                cursor_file_id == *file_id
-            });
+            let file = state.get_file(file_id);
+            let cursor = state.cursor() == Some(index);
 
             FileLine { file, cursor }.render(file_area, buffer);
         }
+
+        let scrollbar_area = area.inner(Margin {
+            horizontal: 0,
+            vertical: 1,
+        });
+
+        Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
+            scrollbar_area,
+            buffer,
+            state.scrollbar_state_mut(),
+        );
     }
 }
 
@@ -58,14 +69,19 @@ impl<'a> Widget for FileLine<'a> {
                     self.file.path.display()
                 );
 
-                "file error: see logs for info"
+                "error: see logs for info"
             });
         let style = if self.cursor {
             Style::default().bold()
         } else {
             Style::default()
         };
+        let indent_width = self.file.depth.saturating_sub(1).saturating_mul(2) as u16;
+        let [_indent, name_area] = area.layout(&Layout::horizontal([
+            Constraint::Length(indent_width),
+            Constraint::Fill(1),
+        ]));
 
-        Span::raw(file_name).style(style).render(area, buffer);
+        Span::raw(file_name).style(style).render(name_area, buffer);
     }
 }

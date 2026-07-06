@@ -1,11 +1,14 @@
 use std::{fs::read_dir, io, path::PathBuf, range::Range};
 
+use ratatui::widgets::ScrollbarState;
+
 #[derive(Debug)]
 pub struct Files {
     files: Vec<File>,
     children: Vec<FileId>,
     visible: Vec<FileId>,
     cursor: Option<usize>,
+    scrollbar_state: ScrollbarState,
 }
 
 impl Files {
@@ -15,6 +18,7 @@ impl Files {
             children: Vec::new(),
             visible: Vec::new(),
             cursor: None,
+            scrollbar_state: ScrollbarState::new(0),
         }
     }
 
@@ -24,6 +28,10 @@ impl Files {
 
     pub fn cursor(&self) -> Option<usize> {
         self.cursor
+    }
+
+    pub fn scrollbar_state_mut(&mut self) -> &mut ScrollbarState {
+        &mut self.scrollbar_state
     }
 
     pub fn open(&mut self, path: PathBuf, depth: u8) -> Result<FileId, io::Error> {
@@ -96,6 +104,11 @@ impl Files {
             _ => (),
         }
 
+        self.scrollbar_state = self
+            .scrollbar_state
+            .content_length(self.visible.len())
+            .position(self.cursor.unwrap_or(0));
+
         Ok(())
     }
 
@@ -104,8 +117,10 @@ impl Files {
             && index < self.visible.len() - 1
         {
             self.cursor = Some(index + 1);
+            self.scrollbar_state = self.scrollbar_state.position(index + 1);
         } else {
             self.cursor = Some(0);
+            self.scrollbar_state = self.scrollbar_state.position(0);
         }
     }
 
@@ -114,8 +129,10 @@ impl Files {
             && index > 0
         {
             self.cursor = Some(index - 1);
+            self.scrollbar_state = self.scrollbar_state.position(index - 1);
         } else {
             self.cursor = Some(self.visible.len() - 1);
+            self.scrollbar_state = self.scrollbar_state.position(self.visible.len() - 1);
         }
     }
 
