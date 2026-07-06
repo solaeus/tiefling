@@ -24,7 +24,7 @@ impl App {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), io::Error> {
         let root_file_id = self.files.open(current_dir()?, 0)?;
 
-        self.files.expand(root_file_id, 0)?;
+        self.files.select_file(root_file_id, 0)?;
 
         loop {
             terminal.draw(|frame| {
@@ -52,7 +52,7 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Down => self.files.move_cursor_down(),
             KeyCode::Up => self.files.move_cursor_up(),
-            KeyCode::Right => self.files.expand_under_cursor()?,
+            KeyCode::Right => self.files.select_file_under_cursor()?,
             _ => {}
         }
 

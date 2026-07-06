@@ -69,45 +69,47 @@ impl Files {
         &self.children[children.as_index_range()]
     }
 
-    pub fn expand(&mut self, id: FileId, visible_index: usize) -> Result<(), io::Error> {
+    pub fn select_file(&mut self, id: FileId, visible_index: usize) -> Result<(), io::Error> {
         let file = self.get_file_mut(&id);
-
-        if file.expanded {
-            return Ok(());
-        }
-
-        file.expanded = true;
 
         match file.kind {
             FileKind::Directory(Some(children)) => {
+                if file.expanded || children.is_empty() {
+                    return Ok(());
+                }
+
+                file.expanded = true;
+
                 for child_index in children.as_index_range() {
                     let file_id = self.children[child_index];
 
                     self.visible.push(file_id);
                 }
+
+                self.update_scrollbar();
             }
             FileKind::Directory(None) => {
+                if file.expanded {
+                    return Ok(());
+                }
+
+                file.expanded = true;
+
                 let dir = read_dir(&file.path)?;
                 let depth = file.depth + 1;
-                let mut next_visible_index = visible_index;
 
-                for read_result in dir {
+                for (read_result, next_visible_index) in dir.zip(visible_index..) {
                     let entry = read_result?;
                     let file_id = self.open(entry.path(), depth)?;
 
                     self.children.push(file_id);
                     self.visible.insert(next_visible_index, file_id);
-
-                    next_visible_index += 1;
                 }
+
+                self.update_scrollbar();
             }
             _ => (),
         }
-
-        self.scrollbar_state = self
-            .scrollbar_state
-            .content_length(self.visible.len())
-            .position(self.cursor.unwrap_or(0));
 
         Ok(())
     }
@@ -136,13 +138,20 @@ impl Files {
         }
     }
 
-    pub fn expand_under_cursor(&mut self) -> Result<(), io::Error> {
+    pub fn select_file_under_cursor(&mut self) -> Result<(), io::Error> {
         let Some(cursor_index) = self.cursor else {
             return Ok(());
         };
         let file_id = self.visible[cursor_index];
 
-        self.expand(file_id, cursor_index + 1)
+        self.select_file(file_id, cursor_index + 1)
+    }
+
+    pub fn update_scrollbar(&mut self) {
+        self.scrollbar_state = self
+            .scrollbar_state
+            .content_length(self.visible.len())
+            .position(self.cursor.unwrap_or(0));
     }
 }
 
@@ -150,7 +159,6 @@ impl Files {
 pub struct File {
     pub path: PathBuf,
     pub kind: FileKind,
-    pub children: FileChildren,
     pub depth: u8,
     pub expanded: bool,
     pub marked: bool,
@@ -161,7 +169,6 @@ impl File {
         Self {
             path,
             kind,
-            children: FileChildren::empty(),
             depth,
             expanded: false,
             marked: false,
@@ -180,15 +187,15 @@ impl FileChildren {
         Self(Range::from(start..end))
     }
 
-    pub fn empty() -> Self {
-        Self(Range::from(0..0))
-    }
-
     pub fn as_index_range(&self) -> Range<usize> {
         Range {
             start: self.0.start as usize,
             end: self.0.end as usize,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
