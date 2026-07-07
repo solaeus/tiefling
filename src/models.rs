@@ -35,21 +35,14 @@ impl Files {
     }
 
     pub fn open(&mut self, path: PathBuf, depth: u8) -> Result<FileId, io::Error> {
-        if !path.is_dir() {
-            let kind = if path.is_symlink() {
-                FileKind::Symlink(path.read_link()?)
-            } else {
-                FileKind::Regular
-            };
-            let file = File::new(path, kind, depth);
-            let file_id = FileId(self.files.len() as u32);
-
-            self.files.push(file);
-
-            return Ok(file_id);
-        }
-
-        let file = File::new(path, FileKind::Directory(None), depth);
+        let kind = if path.is_dir() {
+            FileKind::Directory(None)
+        } else if path.is_symlink() {
+            FileKind::Symlink(path.read_link()?)
+        } else {
+            FileKind::Regular
+        };
+        let file = File::new(path, kind, depth);
         let file_id = FileId(self.files.len() as u32);
 
         self.files.push(file);

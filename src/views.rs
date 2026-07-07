@@ -13,7 +13,10 @@ impl StatefulWidget for FileTree {
 
     fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
         let height = area.height as usize;
-        let scroll_offset = state.cursor().unwrap_or(0).saturating_sub(height - 1);
+        let scroll_offset = state
+            .cursor()
+            .unwrap_or(0)
+            .saturating_sub(height.saturating_sub(5));
 
         for (y_offset, file_id) in state
             .visible()
