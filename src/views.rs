@@ -1,24 +1,34 @@
+use std::marker::PhantomData;
+
 use log::error;
 use ratatui::{
     prelude::*,
     widgets::{Scrollbar, ScrollbarOrientation},
 };
 
-use crate::models::{File, Files};
+use crate::models::{File, Files, IconTheme};
 
-pub struct FileTree;
+pub struct FileTree<'a> {
+    files: &'a mut Files,
+}
 
-impl StatefulWidget for FileTree {
-    type State = Files;
+impl<'a> FileTree<'a> {
+    pub fn new(files: &'a mut Files) -> Self {
+        Self { files }
+    }
+}
 
-    fn render(self, area: Rect, buffer: &mut Buffer, state: &mut Self::State) {
+impl<'a> Widget for FileTree<'a> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
         let height = area.height as usize;
-        let scroll_offset = state
+        let scroll_offset = self
+            .files
             .cursor()
             .unwrap_or(0)
             .saturating_sub(height.saturating_sub(5));
 
-        for (y_offset, file_id) in state
+        for (y_offset, file_id) in self
+            .files
             .visible()
             .iter()
             .skip(scroll_offset)
@@ -34,10 +44,11 @@ impl StatefulWidget for FileTree {
                 width: area.width,
                 height: 1,
             };
-            let file = state.get_file(file_id);
-            let cursor = state.cursor() == Some(index);
+            let file = self.files.get_file(file_id);
+            let cursor = self.files.cursor() == Some(index);
+            let icon = self.files.icons.use_icon(file);
 
-            FileLine { file, cursor }.render(file_area, buffer);
+            FileLine { file, icon, cursor }.render(file_area, buffer);
         }
 
         let scrollbar_area = area.inner(Margin {
@@ -48,13 +59,14 @@ impl StatefulWidget for FileTree {
         Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
             scrollbar_area,
             buffer,
-            state.scrollbar_state_mut(),
+            self.files.scrollbar_state_mut(),
         );
     }
 }
 
 struct FileLine<'a> {
     file: &'a File,
+    icon: &'static str,
     cursor: bool,
 }
 
@@ -79,11 +91,16 @@ impl<'a> Widget for FileLine<'a> {
             Style::default()
         };
         let indent_width = self.file.depth.saturating_sub(1).saturating_mul(2) as u16;
-        let [_indent, name_area] = area.layout(&Layout::horizontal([
+        let [_indent, icon_area, _empty, name_area] = area.layout(&Layout::horizontal([
             Constraint::Length(indent_width),
+            Constraint::Length(1),
+            Constraint::Length(1),
             Constraint::Fill(1),
         ]));
 
+        Span::raw(self.icon)
+            .style(Style::default())
+            .render(icon_area, buffer);
         Span::raw(file_name).style(style).render(name_area, buffer);
     }
 }

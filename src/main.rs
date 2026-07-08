@@ -5,12 +5,20 @@ mod views;
 
 use std::io;
 
-use crate::{app::App, config::Config};
+use crate::{
+    app::App,
+    config::{Config, IconSetting},
+    models::{EmojiIconTheme, JetBrainsIconTheme},
+};
 
 fn main() -> Result<(), io::Error> {
     env_logger::init();
 
-    let mut app = App::new(Config::read_or_default());
+    let config = Config::read_or_default();
+    let mut app = match config.icons {
+        IconSetting::Emoji => App::new::<EmojiIconTheme>(),
+        IconSetting::JetBrains => App::new::<JetBrainsIconTheme>(),
+    };
 
     ratatui::run(|terminal| app.run(terminal))?;
 

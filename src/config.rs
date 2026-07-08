@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
-    icons: IconSetting,
+    pub icons: IconSetting,
 }
 
 impl Config {
@@ -58,11 +58,11 @@ trait ConfigOption: Default {
     fn from_env() -> Option<Self>;
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IconSetting {
+    Emoji,
     #[default]
     JetBrains,
-    Utf8,
 }
 
 impl ConfigOption for IconSetting {
@@ -82,7 +82,7 @@ impl ConfigOption for IconSetting {
 
         match env_var.as_str() {
             "jetbrains" => Some(Self::JetBrains),
-            "utf8" => Some(Self::Utf8),
+            "utf8" => Some(Self::Emoji),
             _ => None,
         }
     }
