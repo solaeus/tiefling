@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::{
-    models::{Files, IconTheme},
+    models::{Files, Icons},
     views::FileTree,
 };
 
@@ -16,9 +16,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new<I: IconTheme>() -> Self {
+    pub fn new(icons: Icons) -> Self {
         Self {
-            files: Files::new::<I>(),
+            files: Files::new(icons),
         }
     }
 

@@ -8,17 +8,18 @@ use std::io;
 use crate::{
     app::App,
     config::{Config, IconSetting},
-    models::{EmojiIconTheme, JetBrainsIconTheme},
+    models::Icons,
 };
 
 fn main() -> Result<(), io::Error> {
     env_logger::init();
 
     let config = Config::read_or_default();
-    let mut app = match config.icons {
-        IconSetting::Emoji => App::new::<EmojiIconTheme>(),
-        IconSetting::JetBrains => App::new::<JetBrainsIconTheme>(),
+    let icons = match config.icons {
+        IconSetting::Emoji => Icons::emoji(),
+        IconSetting::JetBrains => Icons::jet_brains(),
     };
+    let mut app = App::new(icons);
 
     ratatui::run(|terminal| app.run(terminal))?;
 

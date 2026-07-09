@@ -1,34 +1,31 @@
 use std::{
     fmt::Debug,
-    fs::read_dir,
     io::{self, Write, stdout},
     path::{Path, PathBuf},
     range::Range,
 };
 
-use ratatui::widgets::ScrollbarState;
+use ratatui::{style::Color, widgets::ScrollbarState};
 
 #[derive(Debug)]
 pub struct Files {
     files: Vec<File>,
     children: Vec<FileId>,
     visible: Vec<FileId>,
-    loaded_icons: Vec<FileExtension>,
     cursor: Option<usize>,
     scrollbar_state: ScrollbarState,
     pub icons: Icons,
 }
 
 impl Files {
-    pub fn new<I: IconTheme>() -> Self {
+    pub fn new(icons: Icons) -> Self {
         Files {
             files: Vec::new(),
             children: Vec::new(),
             visible: Vec::new(),
-            loaded_icons: Vec::new(),
             cursor: None,
             scrollbar_state: ScrollbarState::new(0),
-            icons: I::default().into_icons(),
+            icons,
         }
     }
 
@@ -83,15 +80,14 @@ impl Files {
     }
 
     pub fn select_file(&mut self, id: FileId, visible_index: usize) -> Result<(), io::Error> {
-        let file = self.get_file_mut(&id);
+        let file = self.get_file(&id);
+        let children_start = self.children.len() as u32;
 
         match file.kind {
             FileKind::Directory(Some(children)) => {
                 if file.expanded || children.is_empty() {
                     return Ok(());
                 }
-
-                file.expanded = true;
 
                 for child_index in children.as_index_range() {
                     let file_id = self.children[child_index];
@@ -106,11 +102,8 @@ impl Files {
                     return Ok(());
                 }
 
-                file.expanded = true;
-
-                let dir = read_dir(&file.path)?;
                 let depth = file.depth + 1;
-
+                let dir = file.path.read_dir()?;
                 let mut stdout = stdout().lock();
 
                 for (read_result, next_visible_index) in dir.zip(visible_index..) {
@@ -123,8 +116,12 @@ impl Files {
 
                 self.update_scrollbar();
             }
-            _ => (),
-        }
+            _ => return Ok(()),
+        };
+
+        let children_end = self.children.len() as u32;
+        let file = self.get_file_mut(&id);
+        file.children = FileChildren::new(children_start, children_end);
 
         Ok(())
     }
@@ -174,6 +171,7 @@ impl Files {
 pub struct File {
     pub path: PathBuf,
     pub kind: FileKind,
+    pub children: FileChildren,
     pub depth: u8,
     pub expanded: bool,
     pub marked: bool,
@@ -184,6 +182,7 @@ impl File {
         Self {
             path,
             kind,
+            children: FileChildren::default(),
             depth,
             expanded: false,
             marked: false,
@@ -194,7 +193,7 @@ impl File {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FileId(u32);
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FileChildren(Range<u32>);
 
 impl FileChildren {
@@ -222,7 +221,7 @@ pub enum FileKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum FileExtension {
+pub enum FileExtension {
     Unknown,
     Rust,
     Toml,
@@ -245,6 +244,14 @@ pub enum Icons {
 }
 
 impl Icons {
+    pub fn emoji() -> Self {
+        Self::Emoji(EmojiIconTheme)
+    }
+
+    pub fn jet_brains() -> Self {
+        Self::JetBrains(JetBrainsIconTheme::default())
+    }
+
     pub fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error> {
         match self {
             Icons::Emoji(theme) => theme.load_icon(file, stdout),
@@ -252,34 +259,29 @@ impl Icons {
         }
     }
 
-    pub fn use_icon(&self, file: &File) -> &'static str {
+    pub fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
         match self {
-            Icons::Emoji(theme) => theme.use_icon(file),
-            Icons::JetBrains(theme) => theme.use_icon(file),
+            Icons::Emoji(theme) => theme.get_icon(file),
+            Icons::JetBrains(theme) => theme.get_icon(file),
         }
     }
 }
 
 pub trait IconTheme: Debug + Default {
-    fn into_icons(self) -> Icons;
     fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error>;
-    fn use_icon(&self, file: &File) -> &'static str;
+    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>);
 }
 
 #[derive(Debug, Default)]
 pub struct EmojiIconTheme;
 
 impl IconTheme for EmojiIconTheme {
-    fn into_icons(self) -> Icons {
-        Icons::Emoji(self)
-    }
-
     fn load_icon(&mut self, _: &File, _: impl Write) -> Result<(), io::Error> {
         Ok(())
     }
 
-    fn use_icon(&self, file: &File) -> &'static str {
-        match &file.kind {
+    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
+        let icon = match &file.kind {
             FileKind::Regular(extension) => match extension {
                 FileExtension::Rust => "\u{1F980}",
                 _ => "\u{1F4C4}",
@@ -292,7 +294,9 @@ impl IconTheme for EmojiIconTheme {
                 }
             }
             FileKind::Symlink(_) => "",
-        }
+        };
+
+        (icon, None)
     }
 }
 
@@ -304,30 +308,41 @@ pub struct JetBrainsIconTheme {
     toml: bool,
 }
 
-impl IconTheme for JetBrainsIconTheme {
-    fn into_icons(self) -> Icons {
-        Icons::JetBrains(self)
+impl JetBrainsIconTheme {
+    pub fn get_id(&self, file: &File) -> u8 {
+        match &file.kind {
+            FileKind::Directory(_) => 1,
+            FileKind::Regular(extension) => *extension as u8 + 1,
+            _ => FileExtension::Unknown as u8 + 1,
+        }
     }
+}
 
+impl IconTheme for JetBrainsIconTheme {
     fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error> {
-        let (id, icon) = match &file.kind {
-            FileKind::Directory(_) if !self.directory => (
-                1,
-                include_bytes!("../assets/jetbrains_icons/folder.b64").as_slice(),
-            ),
+        let id = self.get_id(file);
+        let icon = match &file.kind {
+            FileKind::Directory(_) if !self.directory => {
+                self.directory = true;
+
+                include_bytes!("../assets/jetbrains_icons/folder.b64").as_slice()
+            }
             FileKind::Regular(extension) => match extension {
-                FileExtension::Rust if !self.rust => (
-                    2,
-                    include_bytes!("../assets/jetbrains_icons/rust.b64").as_slice(),
-                ),
-                FileExtension::Toml if !self.toml => (
-                    3,
-                    include_bytes!("../assets/jetbrains_icons/toml.b64").as_slice(),
-                ),
-                _ if !self.unknown => (
-                    4,
-                    include_bytes!("../assets/jetbrains_icons/anyType.b64").as_slice(),
-                ),
+                FileExtension::Rust if !self.rust => {
+                    self.rust = true;
+
+                    include_bytes!("../assets/jetbrains_icons/rust.b64").as_slice()
+                }
+                FileExtension::Toml if !self.toml => {
+                    self.toml = true;
+
+                    include_bytes!("../assets/jetbrains_icons/toml.b64").as_slice()
+                }
+                _ if !self.unknown => {
+                    self.unknown = true;
+
+                    include_bytes!("../assets/jetbrains_icons/anyType.b64").as_slice()
+                }
                 _ => return Ok(()),
             },
             _ => return Ok(()),
@@ -336,16 +351,10 @@ impl IconTheme for JetBrainsIconTheme {
         load_icon(id, icon, stdout)
     }
 
-    fn use_icon(&self, file: &File) -> &'static str {
-        match &file.kind {
-            FileKind::Directory(_) => "\x1b_Gi=1\x1b",
-            FileKind::Regular(extension) => match extension {
-                FileExtension::Rust => "\x1b_Gi=2\x1b",
-                FileExtension::Toml => "\x1b_Gi=3\x1b",
-                _ => "\x1b_Gi=4\x1b",
-            },
-            _ => "\x1b_Gi=4\x1b",
-        }
+    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
+        let id = self.get_id(file);
+
+        ("\u{10EEEE}\u{10EEEE}", Some(Color::Rgb(0, 0, id)))
     }
 }
 
@@ -367,6 +376,8 @@ fn load_icon(id: u8, icon: &[u8], mut writer: impl Write) -> Result<(), io::Erro
         writer.write_all(chunk)?;
         writer.write_all(b"\x1b\\")?;
     }
+
+    write!(writer, "\x1b_Ga=p,U=1,i={id},c=2,r=1\x1b\\")?;
 
     Ok(())
 }

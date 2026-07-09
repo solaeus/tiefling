@@ -15,20 +15,22 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn read_from_project_dir() -> Option<Self> {
+    pub fn read_from_config_dir() -> Option<Self> {
         let config_path = match ProjectDirs::from("io", "jeffa", "tiefling") {
             Some(path) => path.config_dir().join("config.toml"),
             None => return None,
         };
-        let config_text = match read_to_string(config_path) {
-            Ok(text) => text,
-            Err(error) => {
-                if error.kind() != io::ErrorKind::NotFound {
+        let config_text = if config_path.is_file() {
+            match read_to_string(config_path) {
+                Ok(text) => text,
+                Err(error) => {
                     error.log();
-                }
 
-                return None;
+                    return None;
+                }
             }
+        } else {
+            return None;
         };
 
         match toml::de::from_str(&config_text) {
@@ -42,7 +44,7 @@ impl Config {
     }
 
     pub fn read_or_default() -> Self {
-        let user_config = Self::read_from_project_dir();
+        let user_config = Self::read_from_config_dir();
 
         Config {
             icons: IconSetting::from_env()
@@ -82,7 +84,7 @@ impl ConfigOption for IconSetting {
 
         match env_var.as_str() {
             "jetbrains" => Some(Self::JetBrains),
-            "utf8" => Some(Self::Emoji),
+            "emoji" => Some(Self::Emoji),
             _ => None,
         }
     }

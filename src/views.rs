@@ -1,12 +1,10 @@
-use std::marker::PhantomData;
-
 use log::error;
 use ratatui::{
     prelude::*,
     widgets::{Scrollbar, ScrollbarOrientation},
 };
 
-use crate::models::{File, Files, IconTheme};
+use crate::models::{File, Files};
 
 pub struct FileTree<'a> {
     files: &'a mut Files,
@@ -46,9 +44,15 @@ impl<'a> Widget for FileTree<'a> {
             };
             let file = self.files.get_file(file_id);
             let cursor = self.files.cursor() == Some(index);
-            let icon = self.files.icons.use_icon(file);
+            let (icon, icon_color) = self.files.icons.get_icon(file);
 
-            FileLine { file, icon, cursor }.render(file_area, buffer);
+            FileLine {
+                file,
+                icon,
+                icon_color,
+                cursor,
+            }
+            .render(file_area, buffer);
         }
 
         let scrollbar_area = area.inner(Margin {
@@ -67,6 +71,7 @@ impl<'a> Widget for FileTree<'a> {
 struct FileLine<'a> {
     file: &'a File,
     icon: &'static str,
+    icon_color: Option<Color>,
     cursor: bool,
 }
 
@@ -85,22 +90,39 @@ impl<'a> Widget for FileLine<'a> {
 
                 "error: see logs for info"
             });
-        let style = if self.cursor {
+        let name_style = if self.cursor {
             Style::default().bold()
         } else {
             Style::default()
         };
-        let indent_width = self.file.depth.saturating_sub(1).saturating_mul(2) as u16;
+        let indent_width = {
+            if self.file.depth <= 1 {
+                0
+            } else {
+                self.file
+                    .depth
+                    .saturating_sub(1)
+                    .saturating_mul(2)
+                    .saturating_add(1) as u16
+            }
+        };
+        let icon_style = if let Some(icon_color) = self.icon_color {
+            Style::default().fg(icon_color)
+        } else {
+            Style::default()
+        };
         let [_indent, icon_area, _empty, name_area] = area.layout(&Layout::horizontal([
             Constraint::Length(indent_width),
-            Constraint::Length(1),
+            Constraint::Length(2),
             Constraint::Length(1),
             Constraint::Fill(1),
         ]));
 
         Span::raw(self.icon)
-            .style(Style::default())
+            .style(icon_style)
             .render(icon_area, buffer);
-        Span::raw(file_name).style(style).render(name_area, buffer);
+        Span::raw(file_name)
+            .style(name_style)
+            .render(name_area, buffer);
     }
 }
