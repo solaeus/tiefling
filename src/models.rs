@@ -1,39 +1,51 @@
 use std::{
     fmt::Debug,
     io::{self, Write, stdout},
+    num::NonZero,
+    ops::Range,
     path::{Path, PathBuf},
-    range::Range,
 };
 
-use ratatui::{style::Color, widgets::ScrollbarState};
+use ratatui::widgets::ScrollbarState;
 
 #[derive(Debug)]
 pub struct Files {
+    /// All files known to the program, indexed by their `FileId`. This list is append-only; files
+    /// are never removed from it.
     files: Vec<File>,
+
+    /// Concatenated list of IDs for each directory's contents.
     children: Vec<FileId>,
+
+    /// Authoritative list of which files are shown to the user.
     visible: Vec<FileId>,
-    cursor: Option<usize>,
+
+    /// Position of the cursor in the `visible` list of files.
+    cursor: usize,
+
     scrollbar_state: ScrollbarState,
-    pub icons: Icons,
 }
 
 impl Files {
-    pub fn new(icons: Icons) -> Self {
-        Files {
+    pub fn new(root: PathBuf) -> Result<Self, io::Error> {
+        let mut files = Files {
             files: Vec::new(),
             children: Vec::new(),
             visible: Vec::new(),
-            cursor: None,
+            cursor: 0,
             scrollbar_state: ScrollbarState::new(0),
-            icons,
-        }
+        };
+
+        files.open_root(root).unwrap();
+
+        Ok(files)
     }
 
     pub fn visible(&self) -> &Vec<FileId> {
         &self.visible
     }
 
-    pub fn cursor(&self) -> Option<usize> {
+    pub fn cursor(&self) -> usize {
         self.cursor
     }
 
@@ -41,27 +53,28 @@ impl Files {
         &mut self.scrollbar_state
     }
 
-    pub fn open(&mut self, path: PathBuf, depth: u8) -> Result<FileId, io::Error> {
-        self.open_inner(path, depth, stdout())
+    pub fn open_root(&mut self, path: PathBuf) -> Result<(), io::Error> {
+        self.files.clear();
+        self.children.clear();
+        self.visible.clear();
+        self.cursor = 0;
+        self.open(path, 0)?;
+        self.visible.push(FileId::ROOT);
+
+        Ok(())
     }
 
-    fn open_inner(
-        &mut self,
-        path: PathBuf,
-        depth: u8,
-        stdout: impl Write,
-    ) -> Result<FileId, io::Error> {
-        let kind = if path.is_dir() {
-            FileKind::Directory(None)
-        } else if path.is_symlink() {
+    fn open(&mut self, path: PathBuf, depth: u8) -> Result<FileId, io::Error> {
+        let kind = if path.is_symlink() {
             FileKind::Symlink(path.read_link()?)
+        } else if path.is_dir() {
+            FileKind::Directory(Directory::default())
         } else {
             FileKind::Regular(FileExtension::from_path(&path))
         };
         let file = File::new(path, kind, depth);
         let file_id = FileId(self.files.len() as u32);
 
-        self.icons.load_icon(&file, stdout)?;
         self.files.push(file);
 
         Ok(file_id)
@@ -71,109 +84,132 @@ impl Files {
         &self.files[id.0 as usize]
     }
 
-    pub fn get_file_mut(&mut self, id: &FileId) -> &mut File {
-        &mut self.files[id.0 as usize]
-    }
-
-    pub fn get_child_ids(&self, children: &FileChildren) -> &[FileId] {
-        &self.children[children.as_index_range()]
-    }
-
-    pub fn select_file(&mut self, id: FileId, visible_index: usize) -> Result<(), io::Error> {
-        let file = self.get_file(&id);
-        let children_start = self.children.len() as u32;
-
-        match file.kind {
-            FileKind::Directory(Some(children)) => {
-                if file.expanded || children.is_empty() {
-                    return Ok(());
-                }
-
-                for child_index in children.as_index_range() {
-                    let file_id = self.children[child_index];
-
-                    self.visible.push(file_id);
-                }
-
-                self.update_scrollbar();
-            }
-            FileKind::Directory(None) => {
-                if file.expanded {
-                    return Ok(());
-                }
-
-                let depth = file.depth + 1;
-                let dir = file.path.read_dir()?;
-                let mut stdout = stdout().lock();
-
-                for (read_result, next_visible_index) in dir.zip(visible_index..) {
-                    let entry = read_result?;
-                    let file_id = self.open_inner(entry.path(), depth, &mut stdout)?;
-
-                    self.children.push(file_id);
-                    self.visible.insert(next_visible_index, file_id);
-                }
-
-                self.update_scrollbar();
-            }
-            _ => return Ok(()),
-        };
-
-        let children_end = self.children.len() as u32;
-        let file = self.get_file_mut(&id);
-        file.children = FileChildren::new(children_start, children_end);
+    pub fn toggle_file_under_cursor(&mut self) -> Result<(), io::Error> {
+        self.toggle_file(self.visible[self.cursor], self.cursor, false)?;
+        self.update_scrollbar();
 
         Ok(())
     }
 
+    fn toggle_file(
+        &mut self,
+        file_id: FileId,
+        visible_index: usize,
+        reexpand: bool,
+    ) -> Result<usize, io::Error> {
+        let file = &mut self.files[file_id.0 as usize];
+        let FileKind::Directory(Directory {
+            children,
+            expanded,
+            previously_expanded,
+        }) = &mut file.kind
+        else {
+            return Ok(0);
+        };
+        let next = visible_index + 1;
+
+        if *expanded && !reexpand {
+            *expanded = false;
+
+            let child_count = children.length();
+            let depth = file.depth;
+            let last_nested_child_index = self.visible[next..]
+                .iter()
+                .position(|file_id| self.files[file_id.0 as usize].depth <= depth)
+                .map_or(self.visible.len(), |offset| next + offset);
+
+            self.visible.drain(next..last_nested_child_index);
+
+            return Ok(child_count);
+        }
+
+        if (*previously_expanded && !reexpand) || (*expanded && reexpand) {
+            *expanded = true;
+            *previously_expanded = true;
+
+            self.visible
+                .extend_from_slice(&self.children[children.as_index_range()]);
+            self.visible[next..].rotate_right(children.length());
+
+            let mut child_visible_index = next;
+            let mut expansion_count = children.length();
+
+            for children_index in children.as_index_range() {
+                let child_id = self.children[children_index];
+                let expanded = self.toggle_file(child_id, child_visible_index, true)?;
+
+                child_visible_index += expanded + 1;
+                expansion_count += expanded;
+            }
+
+            return Ok(expansion_count);
+        }
+
+        if reexpand {
+            return Ok(0);
+        }
+
+        let child_depth = file.depth + 1;
+        let children_start = self.children.len() as u32;
+
+        for read_file in file.path.read_dir()? {
+            let path = read_file?.path();
+            let child_id = self.open(path, child_depth)?;
+
+            self.children.push(child_id);
+            self.visible.push(child_id);
+        }
+
+        let children_end = self.children.len() as u32;
+        let children = FileChildren::new(children_start, children_end);
+        let file = &mut self.files[file_id.0 as usize];
+        file.kind = FileKind::Directory(Directory {
+            expanded: true,
+            previously_expanded: true,
+            children,
+        });
+
+        self.visible[next..].rotate_right(children.length());
+
+        Ok(children.length())
+    }
+
     pub fn move_cursor_down(&mut self) {
-        if let Some(index) = self.cursor
-            && index < self.visible.len() - 1
-        {
-            self.cursor = Some(index + 1);
-            self.scrollbar_state = self.scrollbar_state.position(index + 1);
+        if self.cursor == self.visible.len() - 1 {
+            self.cursor = 0;
         } else {
-            self.cursor = Some(0);
-            self.scrollbar_state = self.scrollbar_state.position(0);
+            self.cursor += 1;
         }
     }
 
     pub fn move_cursor_up(&mut self) {
-        if let Some(index) = self.cursor
-            && index > 0
-        {
-            self.cursor = Some(index - 1);
-            self.scrollbar_state = self.scrollbar_state.position(index - 1);
+        if self.cursor == 0 {
+            self.cursor = self.visible.len() - 1;
         } else {
-            self.cursor = Some(self.visible.len() - 1);
-            self.scrollbar_state = self.scrollbar_state.position(self.visible.len() - 1);
+            self.cursor -= 1;
         }
-    }
-
-    pub fn select_file_under_cursor(&mut self) -> Result<(), io::Error> {
-        let Some(cursor_index) = self.cursor else {
-            return Ok(());
-        };
-        let file_id = self.visible[cursor_index];
-
-        self.select_file(file_id, cursor_index + 1)
     }
 
     pub fn update_scrollbar(&mut self) {
         self.scrollbar_state = self
             .scrollbar_state
             .content_length(self.visible.len())
-            .position(self.cursor.unwrap_or(0));
+            .position(self.cursor);
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileId(u32);
+
+impl FileId {
+    const ROOT: Self = Self(0);
 }
 
 #[derive(Debug)]
 pub struct File {
     pub path: PathBuf,
     pub kind: FileKind,
-    pub children: FileChildren,
     pub depth: u8,
-    pub expanded: bool,
     pub marked: bool,
 }
 
@@ -182,42 +218,55 @@ impl File {
         Self {
             path,
             kind,
-            children: FileChildren::default(),
             depth,
-            expanded: false,
             marked: false,
         }
     }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FileId(u32);
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct FileChildren(Range<u32>);
-
-impl FileChildren {
-    pub fn new(start: u32, end: u32) -> Self {
-        Self(Range::from(start..end))
-    }
-
-    pub fn as_index_range(&self) -> Range<usize> {
-        Range {
-            start: self.0.start as usize,
-            end: self.0.end as usize,
+    pub fn icon_id(&self) -> IconId {
+        match self.kind {
+            FileKind::Directory(Directory { expanded: true, .. }) => IconId::EXPANDED,
+            FileKind::Directory(Directory {
+                expanded: false, ..
+            }) => IconId::COLLAPSED,
+            FileKind::Regular(extension) => IconId::from_extension(extension),
+            FileKind::Symlink(_) => IconId::SYMLINK,
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 
 #[derive(Debug)]
 pub enum FileKind {
+    Directory(Directory),
     Regular(FileExtension),
-    Directory(Option<FileChildren>),
     Symlink(PathBuf),
+}
+
+#[derive(Debug, Default)]
+pub struct Directory {
+    children: FileChildren,
+    expanded: bool,
+    previously_expanded: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FileChildren {
+    start: u32,
+    end: u32,
+}
+
+impl FileChildren {
+    pub fn new(start: u32, end: u32) -> Self {
+        Self { start, end }
+    }
+
+    pub fn as_index_range(&self) -> Range<usize> {
+        self.start as usize..self.end as usize
+    }
+
+    pub fn length(&self) -> usize {
+        (self.end - self.start) as usize
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -237,129 +286,86 @@ impl FileExtension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub enum Icons {
-    Emoji(EmojiIconTheme),
-    JetBrains(JetBrainsIconTheme),
+    #[default]
+    JetBrains,
 }
 
 impl Icons {
-    pub fn emoji() -> Self {
-        Self::Emoji(EmojiIconTheme)
-    }
-
-    pub fn jet_brains() -> Self {
-        Self::JetBrains(JetBrainsIconTheme::default())
-    }
-
-    pub fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error> {
+    pub fn load_icons(&self) -> Result<(), io::Error> {
         match self {
-            Icons::Emoji(theme) => theme.load_icon(file, stdout),
-            Icons::JetBrains(theme) => theme.load_icon(file, stdout),
-        }
-    }
-
-    pub fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
-        match self {
-            Icons::Emoji(theme) => theme.get_icon(file),
-            Icons::JetBrains(theme) => theme.get_icon(file),
+            Icons::JetBrains => JetBrainsIconTheme::load_icons(),
         }
     }
 }
 
 pub trait IconTheme: Debug + Default {
-    fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error>;
-    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>);
-}
+    const COLLAPSED_ICON: &'static [u8];
+    const EXPANDED_ICON: &'static [u8];
+    const EXTENSION_ICONS: &'static [(IconId, &'static [u8])];
 
-#[derive(Debug, Default)]
-pub struct EmojiIconTheme;
+    fn load_icons() -> Result<(), io::Error> {
+        let mut stdout = stdout().lock();
 
-impl IconTheme for EmojiIconTheme {
-    fn load_icon(&mut self, _: &File, _: impl Write) -> Result<(), io::Error> {
+        load_kitty_icon(IconId::COLLAPSED, Self::COLLAPSED_ICON, &mut stdout)?;
+        load_kitty_icon(IconId::EXPANDED, Self::EXPANDED_ICON, &mut stdout)?;
+
+        for (icon_id, icon_data) in Self::EXTENSION_ICONS {
+            load_kitty_icon(*icon_id, icon_data, &mut stdout)?;
+        }
+
         Ok(())
     }
-
-    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
-        let icon = match &file.kind {
-            FileKind::Regular(extension) => match extension {
-                FileExtension::Rust => "\u{1F980}",
-                _ => "\u{1F4C4}",
-            },
-            FileKind::Directory(_) => {
-                if file.expanded {
-                    "\u{1F4C2}"
-                } else {
-                    "\u{1F4C1}"
-                }
-            }
-            FileKind::Symlink(_) => "",
-        };
-
-        (icon, None)
-    }
 }
 
 #[derive(Debug, Default)]
-pub struct JetBrainsIconTheme {
-    unknown: bool,
-    directory: bool,
-    rust: bool,
-    toml: bool,
-}
-
-impl JetBrainsIconTheme {
-    pub fn get_id(&self, file: &File) -> u8 {
-        match &file.kind {
-            FileKind::Directory(_) => 1,
-            FileKind::Regular(extension) => *extension as u8 + 1,
-            _ => FileExtension::Unknown as u8 + 1,
-        }
-    }
-}
+pub struct JetBrainsIconTheme;
 
 impl IconTheme for JetBrainsIconTheme {
-    fn load_icon(&mut self, file: &File, stdout: impl Write) -> Result<(), io::Error> {
-        let id = self.get_id(file);
-        let icon = match &file.kind {
-            FileKind::Directory(_) if !self.directory => {
-                self.directory = true;
+    const COLLAPSED_ICON: &'static [u8] = include_bytes!("../assets/jetbrains_icons/folder.b64");
+    const EXPANDED_ICON: &'static [u8] = include_bytes!("../assets/jetbrains_icons/folder.b64");
+    const EXTENSION_ICONS: &'static [(IconId, &'static [u8])] = &[
+        (
+            IconId::from_extension(FileExtension::Unknown),
+            include_bytes!("../assets/jetbrains_icons/anyType.b64"),
+        ),
+        (
+            IconId::from_extension(FileExtension::Rust),
+            include_bytes!("../assets/jetbrains_icons/rust.b64"),
+        ),
+    ];
+}
 
-                include_bytes!("../assets/jetbrains_icons/folder.b64").as_slice()
-            }
-            FileKind::Regular(extension) => match extension {
-                FileExtension::Rust if !self.rust => {
-                    self.rust = true;
+#[derive(Debug, Clone, Copy)]
+pub struct IconId(pub NonZero<u8>);
 
-                    include_bytes!("../assets/jetbrains_icons/rust.b64").as_slice()
-                }
-                FileExtension::Toml if !self.toml => {
-                    self.toml = true;
+#[expect(clippy::disallowed_methods)]
+impl IconId {
+    const COLLAPSED: Self = Self(NonZero::new(1).unwrap());
+    const EXPANDED: Self = Self(NonZero::new(2).unwrap());
+    const SYMLINK: Self = Self(NonZero::new(3).unwrap());
+}
 
-                    include_bytes!("../assets/jetbrains_icons/toml.b64").as_slice()
-                }
-                _ if !self.unknown => {
-                    self.unknown = true;
+impl IconId {
+    pub const fn from_extension(extension: FileExtension) -> Self {
+        let inner = extension as u8 + 4;
 
-                    include_bytes!("../assets/jetbrains_icons/anyType.b64").as_slice()
-                }
-                _ => return Ok(()),
-            },
-            _ => return Ok(()),
-        };
-
-        load_icon(id, icon, stdout)
+        // SAFETY: `id_inner` is guaranteed to be non-zero by the addition expression above.
+        unsafe { IconId(NonZero::new(inner).unwrap_unchecked()) }
     }
 
-    fn get_icon(&self, file: &File) -> (&'static str, Option<Color>) {
-        let id = self.get_id(file);
-
-        ("\u{10EEEE}\u{10EEEE}", Some(Color::Rgb(0, 0, id)))
+    pub const fn inner(self) -> u8 {
+        self.0.get()
     }
 }
 
 /// https://sw.kovidgoyal.net/kitty/graphics-protocol/#a-minimal-example
-fn load_icon(id: u8, icon: &[u8], mut writer: impl Write) -> Result<(), io::Error> {
+fn load_kitty_icon(
+    IconId(id): IconId,
+    icon: &[u8],
+    mut writer: impl Write,
+) -> Result<(), io::Error> {
     let mut chunks = icon.chunks(4096).peekable();
     let mut first = true;
 

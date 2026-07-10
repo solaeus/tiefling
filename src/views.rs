@@ -19,11 +19,7 @@ impl<'a> FileTree<'a> {
 impl<'a> Widget for FileTree<'a> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let height = area.height as usize;
-        let scroll_offset = self
-            .files
-            .cursor()
-            .unwrap_or(0)
-            .saturating_sub(height.saturating_sub(5));
+        let scroll_offset = self.files.cursor().saturating_sub(height.saturating_sub(5));
 
         for (y_offset, file_id) in self
             .files
@@ -43,20 +39,13 @@ impl<'a> Widget for FileTree<'a> {
                 height: 1,
             };
             let file = self.files.get_file(file_id);
-            let cursor = self.files.cursor() == Some(index);
-            let (icon, icon_color) = self.files.icons.get_icon(file);
+            let cursor = self.files.cursor() == index;
 
-            FileLine {
-                file,
-                icon,
-                icon_color,
-                cursor,
-            }
-            .render(file_area, buffer);
+            FileLine { file, cursor }.render(file_area, buffer);
         }
 
         let scrollbar_area = area.inner(Margin {
-            horizontal: 0,
+            horizontal: 1,
             vertical: 1,
         });
 
@@ -70,13 +59,13 @@ impl<'a> Widget for FileTree<'a> {
 
 struct FileLine<'a> {
     file: &'a File,
-    icon: &'static str,
-    icon_color: Option<Color>,
     cursor: bool,
 }
 
 impl<'a> Widget for FileLine<'a> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
+        let indent_width = self.file.depth * 2;
+        let icon_style = Style::default().fg(Color::Rgb(0, 0, self.file.icon_id().inner()));
         let file_name = self
             .file
             .path
@@ -95,30 +84,16 @@ impl<'a> Widget for FileLine<'a> {
         } else {
             Style::default()
         };
-        let indent_width = {
-            if self.file.depth <= 1 {
-                0
-            } else {
-                self.file
-                    .depth
-                    .saturating_sub(1)
-                    .saturating_mul(2)
-                    .saturating_add(1) as u16
-            }
-        };
-        let icon_style = if let Some(icon_color) = self.icon_color {
-            Style::default().fg(icon_color)
-        } else {
-            Style::default()
-        };
-        let [_indent, icon_area, _empty, name_area] = area.layout(&Layout::horizontal([
-            Constraint::Length(indent_width),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-        ]));
+        let [_indent, icon_area, _space, name_area, _scrollbar] =
+            area.layout(&Layout::horizontal([
+                Constraint::Length(indent_width as u16),
+                Constraint::Length(2),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(1),
+            ]));
 
-        Span::raw(self.icon)
+        Span::raw("\u{10EEEE}\u{10EEEE}")
             .style(icon_style)
             .render(icon_area, buffer);
         Span::raw(file_name)

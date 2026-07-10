@@ -1,4 +1,4 @@
-use std::{env::current_dir, io};
+use std::{io, path::PathBuf};
 
 use ratatui::{
     DefaultTerminal,
@@ -13,19 +13,19 @@ use crate::{
 #[derive(Debug)]
 pub struct App {
     files: Files,
+    icons: Icons,
 }
 
 impl App {
-    pub fn new(icons: Icons) -> Self {
-        Self {
-            files: Files::new(icons),
-        }
+    pub fn new(root: PathBuf, icons: Icons) -> Result<Self, io::Error> {
+        Ok(Self {
+            files: Files::new(root)?,
+            icons,
+        })
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), io::Error> {
-        let root_file_id = self.files.open(current_dir()?, 0)?;
-
-        self.files.select_file(root_file_id, 0)?;
+        self.icons.load_icons()?;
 
         loop {
             terminal.draw(|frame| {
@@ -53,7 +53,7 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Down => self.files.move_cursor_down(),
             KeyCode::Up => self.files.move_cursor_up(),
-            KeyCode::Right => self.files.select_file_under_cursor()?,
+            KeyCode::Right => self.files.toggle_file_under_cursor()?,
             _ => {}
         }
 

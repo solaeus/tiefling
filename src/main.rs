@@ -3,23 +3,15 @@ mod config;
 mod models;
 mod views;
 
-use std::io;
+use std::{env::current_dir, io};
 
-use crate::{
-    app::App,
-    config::{Config, IconSetting},
-    models::Icons,
-};
+use crate::{app::App, config::ConfigFile, models::Icons};
 
 fn main() -> Result<(), io::Error> {
     env_logger::init();
 
-    let config = Config::read_or_default();
-    let icons = match config.icons {
-        IconSetting::Emoji => Icons::emoji(),
-        IconSetting::JetBrains => Icons::jet_brains(),
-    };
-    let mut app = App::new(icons);
+    let config = ConfigFile::read_or_default();
+    let mut app = App::new(current_dir()?, Icons::JetBrains)?;
 
     ratatui::run(|terminal| app.run(terminal))?;
 

@@ -10,11 +10,11 @@ use log::error;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Config {
-    pub icons: IconSetting,
+pub struct ConfigFile {
+    pub icons: Option<IconSetting>,
 }
 
-impl Config {
+impl ConfigFile {
     pub fn read_from_config_dir() -> Option<Self> {
         let config_path = match ProjectDirs::from("io", "jeffa", "tiefling") {
             Some(path) => path.config_dir().join("config.toml"),
@@ -44,26 +44,22 @@ impl Config {
     }
 
     pub fn read_or_default() -> Self {
-        let user_config = Self::read_from_config_dir();
+        let user_config = Self::read_from_config_dir().unwrap_or_default();
 
-        Config {
-            icons: IconSetting::from_env()
-                .or(user_config.map(|config| config.icons))
-                .unwrap_or_default(),
+        ConfigFile {
+            icons: IconSetting::from_env().or(user_config.icons),
         }
     }
 }
 
-trait ConfigOption: Default {
+trait ConfigOption: Sized {
     const ENVIRONMENT_VARIABLE: &'static str;
 
     fn from_env() -> Option<Self>;
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum IconSetting {
-    Emoji,
-    #[default]
     JetBrains,
 }
 
@@ -84,7 +80,6 @@ impl ConfigOption for IconSetting {
 
         match env_var.as_str() {
             "jetbrains" => Some(Self::JetBrains),
-            "emoji" => Some(Self::Emoji),
             _ => None,
         }
     }
