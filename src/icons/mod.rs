@@ -1,10 +1,12 @@
+mod jetbrains;
+
 use std::{
     fmt::Debug,
     io::{self, Write},
     num::NonZero,
 };
 
-use crate::models::FileExtension;
+use crate::{icons::jetbrains::JetBrainsIconTheme, models::FileExtension};
 
 #[derive(Debug, Default)]
 pub enum Icons {
@@ -35,24 +37,6 @@ pub trait IconTheme: Debug + Default {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Default)]
-pub struct JetBrainsIconTheme;
-
-impl IconTheme for JetBrainsIconTheme {
-    const COLLAPSED_ICON: &'static [u8] = include_bytes!("../assets/jetbrains_icons/folder.b64");
-    const EXPANDED_ICON: &'static [u8] = include_bytes!("../assets/jetbrains_icons/folder.b64");
-    const EXTENSION_ICONS: &'static [(IconId, &'static [u8])] = &[
-        (
-            IconId::from_extension(FileExtension::Unknown),
-            include_bytes!("../assets/jetbrains_icons/anyType.b64"),
-        ),
-        (
-            IconId::from_extension(FileExtension::Rust),
-            include_bytes!("../assets/jetbrains_icons/rust.b64"),
-        ),
-    ];
 }
 
 #[derive(Debug, Clone, Copy)]
