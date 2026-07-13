@@ -319,6 +319,10 @@ impl IconTheme for JetBrainsIconTheme {
             IconId::from_extension(FileExtension::Rust),
             include_bytes!("../assets/jetbrains_icons/rust.b64"),
         ),
+        (
+            IconId::from_extension(FileExtension::Toml),
+            include_bytes!("../assets/jetbrains_icons/toml.b64"),
+        ),
     ];
 }
 
