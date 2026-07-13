@@ -1,20 +1,21 @@
 mod app;
 mod config;
+mod icons;
 mod models;
 mod terminal;
 mod views;
 
 use std::{
     env::current_dir,
-    io::{self, stdout},
+    io::{self},
 };
 
-use crate::{app::App, config::ConfigFile, models::Icons};
+use crate::{app::App, config::ConfigFile, icons::Icons};
 
 fn main() -> Result<(), io::Error> {
     env_logger::init();
 
-    let config = ConfigFile::read_or_default();
+    let _config = ConfigFile::read_or_default();
     let mut app = App::new(current_dir()?, Icons::JetBrains)?;
 
     app.run()?;

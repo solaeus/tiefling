@@ -1,15 +1,20 @@
 use std::{
     io::{self, Write, stdout},
     path::PathBuf,
+    time::Instant,
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, MouseEvent},
-    terminal::size,
+    cursor::MoveTo,
+    event::{self, Event, KeyCode},
+    execute,
+    style::Print,
+    terminal::{Clear, ClearType, size},
 };
 
 use crate::{
-    models::{Files, Icons},
+    icons::Icons,
+    models::Files,
     terminal::Terminal,
     views::{Area, FileTree, View},
 };
@@ -33,16 +38,27 @@ impl App {
 
         self.icons.load_icons(terminal.stdout())?;
 
+        let mut last_render = Instant::now();
+
         loop {
-            let file_tree = FileTree::new(&self.files);
             let (width, height) = size()?;
+            let render_time = last_render.elapsed();
+            last_render = Instant::now();
+            let file_tree = FileTree::new(&self.files);
             let file_tree_area = Area {
                 x: 0,
-                y: 0,
+                y: 1,
                 width,
                 height,
             };
 
+            execute!(terminal.stdout(), Clear(ClearType::All))?;
+            execute!(
+                terminal.stdout(),
+                MoveTo(width / 2, 0),
+                Print(render_time.as_millis()),
+                Print("ms")
+            )?;
             file_tree.render(file_tree_area, terminal.stdout())?;
             terminal.stdout().flush()?;
 
@@ -58,16 +74,6 @@ impl App {
     }
 
     fn handle_input(&mut self, event: Event) -> Result<bool, io::Error> {
-        if let Event::Mouse(MouseEvent {
-            kind,
-            column,
-            row,
-            modifiers,
-        }) = event
-        {
-            self.files.set_cursor(column as usize);
-        }
-
         let Event::Key(key_press) = event else {
             return Ok(false);
         };
@@ -80,7 +86,8 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Down => self.files.move_cursor_down(),
             KeyCode::Up => self.files.move_cursor_up(),
-            KeyCode::Right => self.files.toggle_file_under_cursor()?,
+            KeyCode::Right => self.files.expand_directory_under_cursor()?,
+            KeyCode::Char(' ') => self.files.toggle_file_under_cursor_marked(),
             _ => {}
         }
 

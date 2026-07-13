@@ -4,7 +4,6 @@ use crossterm::{
     cursor::MoveTo,
     queue,
     style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor},
-    terminal::{Clear, ClearType},
 };
 use log::error;
 
@@ -33,8 +32,6 @@ impl<'a> FileTree<'a> {
 
 impl View for FileTree<'_> {
     fn render(&self, area: Area, stdout: &mut impl Write) -> Result<(), io::Error> {
-        queue!(stdout, Clear(ClearType::All))?;
-
         let height = area.height as usize;
         let scrollbar_x = area.width - 1;
         let scroll_offset = self.files.cursor().saturating_sub(height.saturating_sub(5));
@@ -81,11 +78,11 @@ struct FileLine<'a> {
 
 impl View for FileLine<'_> {
     fn render(&self, area: Area, stdout: &mut impl Write) -> Result<(), io::Error> {
-        let indent_width = self.file.depth as u16 * 3;
+        let cursor_width = 2;
+        let indent_width = (self.file.depth as u16 * 3) + cursor_width;
         let icon_width = 2;
         let name_x = icon_width + indent_width + 1;
-        let name_width = area.width.saturating_sub(name_x).saturating_sub(1) as usize;
-        let full_file_name = &self
+        let file_name = &self
             .file
             .path
             .file_name()
@@ -98,11 +95,11 @@ impl View for FileLine<'_> {
 
                 "error: see logs for info"
             });
-        let file_name_end = full_file_name
-            .char_indices()
-            .nth(name_width)
-            .map_or(full_file_name.len(), |(index, _)| index);
-        let file_name = &full_file_name[..file_name_end];
+        let (icon_id, linked_path) = self.file.icon_id_and_linked_path();
+
+        if self.cursor {
+            queue!(stdout, MoveTo(area.x, area.y), Print("▷"))?;
+        }
 
         queue!(
             stdout,
@@ -110,28 +107,32 @@ impl View for FileLine<'_> {
             SetForegroundColor(Color::Rgb {
                 r: 0,
                 g: 0,
-                b: self.file.icon_id().inner()
+                b: icon_id.inner()
             }),
             Print("\u{10EEEE}\u{10EEEE}"),
             ResetColor,
         )?;
         queue!(stdout, MoveTo(name_x, area.y))?;
 
-        if self.cursor {
+        if self.file.marked {
             queue!(
                 stdout,
                 SetAttribute(Attribute::Bold),
-                // Print(SIZE_CODE_START),
                 Print(file_name),
-                // Print(SIZE_CODE_END),
                 SetAttribute(Attribute::Reset),
             )?;
         } else {
+            queue!(stdout, Print(file_name))?;
+        }
+
+        if let Some(linked_path) = linked_path {
+            let file_name_end = name_x + file_name.chars().count() as u16;
+
+            queue!(stdout, MoveTo(file_name_end + 1, area.y), Print("->"),)?;
             queue!(
                 stdout,
-                // Print(SIZE_CODE_START),
-                Print(file_name),
-                // Print(SIZE_CODE_END)
+                MoveTo(file_name_end + 4, area.y),
+                Print(linked_path.display()),
             )?;
         }
 
