@@ -1,13 +1,17 @@
-use std::{io, path::PathBuf};
+use std::{
+    io::{self, Write, stdout},
+    path::PathBuf,
+};
 
-use ratatui::{
-    DefaultTerminal,
-    crossterm::event::{self, KeyCode, KeyEvent},
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, MouseEvent},
+    terminal::size,
 };
 
 use crate::{
     models::{Files, Icons},
-    views::FileTree,
+    terminal::Terminal,
+    views::{Area, FileTree, View},
 };
 
 #[derive(Debug)]
@@ -24,32 +28,55 @@ impl App {
         })
     }
 
-    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<(), io::Error> {
-        self.icons.load_icons()?;
+    pub fn run(&mut self) -> Result<(), io::Error> {
+        let mut terminal = Terminal::new(stdout())?;
+
+        self.icons.load_icons(terminal.stdout())?;
 
         loop {
-            terminal.draw(|frame| {
-                frame.render_widget(FileTree::new(&mut self.files), frame.area());
-            })?;
+            let file_tree = FileTree::new(&self.files);
+            let (width, height) = size()?;
+            let file_tree_area = Area {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            };
 
-            if let Some(key_press) = event::read()?.as_key_press_event() {
-                let quit = self.handle_input(key_press)?;
+            file_tree.render(file_tree_area, terminal.stdout())?;
+            terminal.stdout().flush()?;
 
-                if quit {
-                    break;
-                }
+            let input_event = event::read()?;
+            let quit = self.handle_input(input_event)?;
+
+            if quit {
+                break;
             }
         }
 
         Ok(())
     }
 
-    fn handle_input(&mut self, event: KeyEvent) -> Result<bool, io::Error> {
-        if !event.modifiers.is_empty() {
+    fn handle_input(&mut self, event: Event) -> Result<bool, io::Error> {
+        if let Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers,
+        }) = event
+        {
+            self.files.set_cursor(column as usize);
+        }
+
+        let Event::Key(key_press) = event else {
+            return Ok(false);
+        };
+
+        if !key_press.modifiers.is_empty() {
             return Ok(false);
         }
 
-        match event.code {
+        match key_press.code {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Down => self.files.move_cursor_down(),
             KeyCode::Up => self.files.move_cursor_up(),

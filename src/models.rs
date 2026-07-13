@@ -1,12 +1,10 @@
 use std::{
     fmt::Debug,
-    io::{self, Write, stdout},
+    io::{self, Write},
     num::NonZero,
     ops::Range,
     path::{Path, PathBuf},
 };
-
-use ratatui::widgets::ScrollbarState;
 
 #[derive(Debug)]
 pub struct Files {
@@ -22,8 +20,6 @@ pub struct Files {
 
     /// Position of the cursor in the `visible` list of files.
     cursor: usize,
-
-    scrollbar_state: ScrollbarState,
 }
 
 impl Files {
@@ -33,10 +29,9 @@ impl Files {
             children: Vec::new(),
             visible: Vec::new(),
             cursor: 0,
-            scrollbar_state: ScrollbarState::new(0),
         };
 
-        files.open_root(root).unwrap();
+        files.open_root(root)?;
 
         Ok(files)
     }
@@ -49,8 +44,8 @@ impl Files {
         self.cursor
     }
 
-    pub fn scrollbar_state_mut(&mut self) -> &mut ScrollbarState {
-        &mut self.scrollbar_state
+    pub fn set_cursor(&mut self, cursor: usize) {
+        self.cursor = cursor;
     }
 
     pub fn open_root(&mut self, path: PathBuf) -> Result<(), io::Error> {
@@ -86,7 +81,6 @@ impl Files {
 
     pub fn toggle_file_under_cursor(&mut self) -> Result<(), io::Error> {
         self.toggle_file(self.visible[self.cursor], self.cursor, false)?;
-        self.update_scrollbar();
 
         Ok(())
     }
@@ -189,13 +183,6 @@ impl Files {
             self.cursor -= 1;
         }
     }
-
-    pub fn update_scrollbar(&mut self) {
-        self.scrollbar_state = self
-            .scrollbar_state
-            .content_length(self.visible.len())
-            .position(self.cursor);
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -293,9 +280,9 @@ pub enum Icons {
 }
 
 impl Icons {
-    pub fn load_icons(&self) -> Result<(), io::Error> {
+    pub fn load_icons(&self, stdout: &mut impl Write) -> Result<(), io::Error> {
         match self {
-            Icons::JetBrains => JetBrainsIconTheme::load_icons(),
+            Icons::JetBrains => JetBrainsIconTheme::load_icons(stdout),
         }
     }
 }
@@ -305,14 +292,12 @@ pub trait IconTheme: Debug + Default {
     const EXPANDED_ICON: &'static [u8];
     const EXTENSION_ICONS: &'static [(IconId, &'static [u8])];
 
-    fn load_icons() -> Result<(), io::Error> {
-        let mut stdout = stdout().lock();
-
-        load_kitty_icon(IconId::COLLAPSED, Self::COLLAPSED_ICON, &mut stdout)?;
-        load_kitty_icon(IconId::EXPANDED, Self::EXPANDED_ICON, &mut stdout)?;
+    fn load_icons(stdout: &mut impl Write) -> Result<(), io::Error> {
+        load_kitty_icon(IconId::COLLAPSED, Self::COLLAPSED_ICON, stdout)?;
+        load_kitty_icon(IconId::EXPANDED, Self::EXPANDED_ICON, stdout)?;
 
         for (icon_id, icon_data) in Self::EXTENSION_ICONS {
-            load_kitty_icon(*icon_id, icon_data, &mut stdout)?;
+            load_kitty_icon(*icon_id, icon_data, stdout)?;
         }
 
         Ok(())
@@ -364,7 +349,7 @@ impl IconId {
 fn load_kitty_icon(
     IconId(id): IconId,
     icon: &[u8],
-    mut writer: impl Write,
+    stdout: &mut impl Write,
 ) -> Result<(), io::Error> {
     let mut chunks = icon.chunks(4096).peekable();
     let mut first = true;
@@ -374,16 +359,16 @@ fn load_kitty_icon(
 
         if first {
             first = false;
-            write!(writer, "\x1b_Ga=t,f=100,q=2,i={id},m={remaining};")?;
+            write!(stdout, "\x1b_Ga=t,f=100,q=2,i={id},m={remaining};")?;
         } else {
-            write!(writer, "\x1b_Gm={remaining};")?;
+            write!(stdout, "\x1b_Gm={remaining};")?;
         }
 
-        writer.write_all(chunk)?;
-        writer.write_all(b"\x1b\\")?;
+        stdout.write_all(chunk)?;
+        stdout.write_all(b"\x1b\\")?;
     }
 
-    write!(writer, "\x1b_Ga=p,U=1,i={id},c=2,r=1\x1b\\")?;
+    write!(stdout, "\x1b_Ga=p,U=1,i={id},c=2,r=1\x1b\\")?;
 
     Ok(())
 }
