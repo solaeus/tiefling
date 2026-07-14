@@ -135,7 +135,8 @@ impl View for FileLine<'_> {
         let extra_width = (placement.width as usize)
             .saturating_sub(name_x as usize)
             .saturating_sub(file_name.chars().count());
-        let (icon_id, linked_path) = self.file.icon_id_and_linked_path();
+        let icon_id = self.file.icon_id();
+        let linked_path = self.file.linked_path();
 
         execute!(
             stdout,

@@ -16,7 +16,7 @@ fn main() -> Result<(), io::Error> {
     env_logger::init();
 
     let _config = ConfigFile::read_or_default();
-    let mut app = App::new(current_dir()?, Icons::JetBrains)?;
+    let mut app = App::new(current_dir()?, Icons::default())?;
 
     app.run()?;
 
