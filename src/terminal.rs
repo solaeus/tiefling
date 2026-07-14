@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Stdout, Write, stdout},
+    io::{self, Stdout, StdoutLock, Write, stdout},
     panic,
 };
 
@@ -9,12 +9,12 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
-pub struct Terminal {
-    stdout: Stdout,
+pub struct Terminal<'a> {
+    stdout: StdoutLock<'a>,
 }
 
-impl Terminal {
-    pub fn new(mut stdout: Stdout) -> Result<Self, io::Error> {
+impl<'a> Terminal<'a> {
+    pub fn new(mut stdout: StdoutLock<'a>) -> Result<Self, io::Error> {
         install_panic_hook();
         enable_raw_mode()?;
         execute!(stdout, EnterAlternateScreen, Hide)?;
@@ -22,12 +22,12 @@ impl Terminal {
         Ok(Self { stdout })
     }
 
-    pub fn stdout(&mut self) -> &mut Stdout {
+    pub fn stdout(&mut self) -> &mut StdoutLock<'a> {
         &mut self.stdout
     }
 }
 
-impl Drop for Terminal {
+impl<'a> Drop for Terminal<'a> {
     fn drop(&mut self) {
         restore_terminal(&mut self.stdout);
     }
@@ -44,7 +44,7 @@ fn install_panic_hook() {
     }));
 }
 
-fn restore_terminal(stdout: &mut Stdout) {
+fn restore_terminal(stdout: &mut impl Write) {
     let _ = execute!(stdout, Show, LeaveAlternateScreen);
     let _ = disable_raw_mode();
     let _ = stdout.flush();

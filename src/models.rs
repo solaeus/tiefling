@@ -150,12 +150,15 @@ impl Files {
         let child_depth = file.depth + 1;
         let children_start = self.children.len() as u32;
 
-        for read_file in file.path.read_dir()? {
-            let path = read_file?.path();
-            let child_id = self.open(path, child_depth)?;
+        let mut entries = file.path.read_dir()?.flatten().collect::<Vec<_>>();
 
-            self.children.push(child_id);
-            self.visible.push(child_id);
+        entries.sort_by(sort_entries);
+
+        for entry in entries {
+            let file_id = self.open(entry.path(), child_depth)?;
+
+            self.children.push(file_id);
+            self.visible.push(file_id);
         }
 
         let children_end = self.children.len() as u32;
@@ -544,4 +547,20 @@ impl FileExtension {
             _ => Self::Unknown,
         }
     }
+}
+
+fn sort_entries(left: &std::fs::DirEntry, right: &std::fs::DirEntry) -> std::cmp::Ordering {
+    let Ok(left_type) = left.file_type() else {
+        return std::cmp::Ordering::Equal;
+    };
+    let Ok(right_type) = right.file_type() else {
+        return std::cmp::Ordering::Equal;
+    };
+    let type_comparison = left_type.is_dir().cmp(&right_type.is_dir());
+
+    if type_comparison != std::cmp::Ordering::Equal {
+        return type_comparison.reverse();
+    }
+
+    left.file_name().cmp(&right.file_name())
 }

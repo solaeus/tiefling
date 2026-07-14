@@ -8,7 +8,7 @@ use crossterm::{
     cursor::MoveTo,
     event::{self, Event, KeyCode},
     execute,
-    style::Print,
+    style::{Color, Print},
     terminal::{Clear, ClearType, size},
 };
 
@@ -34,7 +34,7 @@ impl App {
     }
 
     pub fn run(&mut self) -> Result<(), io::Error> {
-        let mut terminal = Terminal::new(stdout())?;
+        let mut terminal = Terminal::new(stdout().lock())?;
 
         self.icons.load_icons(terminal.stdout())?;
 
@@ -59,7 +59,22 @@ impl App {
                 Print(render_time.as_millis()),
                 Print("ms")
             )?;
-            file_tree.render(file_tree_area, terminal.stdout())?;
+            file_tree.render(
+                file_tree_area,
+                (
+                    Color::Rgb {
+                        r: 166,
+                        g: 166,
+                        b: 166,
+                    },
+                    Color::Rgb {
+                        r: 44,
+                        g: 44,
+                        b: 44,
+                    },
+                ),
+                terminal.stdout(),
+            )?;
             terminal.stdout().flush()?;
 
             let input_event = event::read()?;
