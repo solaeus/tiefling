@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Stdout, StdoutLock, Write, stdout},
+    io::{self, StdoutLock, Write, stdout},
     panic,
 };
 

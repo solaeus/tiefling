@@ -6,7 +6,7 @@ use std::{
     num::NonZero,
 };
 
-use crate::{icons::jetbrains::JetBrainsIconTheme, models::FileExtension};
+use crate::{icons::jetbrains::JetBrainsIconTheme, models::FileFormat};
 
 #[derive(Debug, Default)]
 pub enum Icons {
@@ -50,8 +50,8 @@ impl IconId {
 }
 
 impl IconId {
-    pub const fn from_extension(extension: FileExtension) -> Self {
-        let inner = extension as u8 + 4;
+    pub const fn from_format(format: FileFormat) -> Self {
+        let inner = format as u8 + 4;
 
         // SAFETY: `id_inner` is guaranteed to be non-zero by the addition expression above.
         unsafe { IconId(NonZero::new(inner).unwrap_unchecked()) }

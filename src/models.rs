@@ -62,7 +62,7 @@ impl Files {
         } else if path.is_dir() {
             FileKind::Directory(Directory::default())
         } else {
-            FileKind::Regular(FileExtension::from_path(&path))
+            FileKind::Regular(FileFormat::from_path(&path))
         };
         let file = File::new(path, kind, depth);
         let file_id = FileId(self.files.len() as u32);
@@ -223,7 +223,7 @@ impl File {
             FileKind::Directory(Directory {
                 expanded: false, ..
             }) => (IconId::COLLAPSED, None),
-            FileKind::Regular(extension) => (IconId::from_extension(*extension), None),
+            FileKind::Regular(format) => (IconId::from_format(*format), None),
             FileKind::Symlink(linked_path) => (IconId::SYMLINK, Some(linked_path)),
         }
     }
@@ -232,7 +232,7 @@ impl File {
 #[derive(Debug)]
 pub enum FileKind {
     Directory(Directory),
-    Regular(FileExtension),
+    Regular(FileFormat),
     Symlink(PathBuf),
 }
 
@@ -264,7 +264,7 @@ impl FileChildren {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FileExtension {
+pub enum FileFormat {
     Unknown,
     ActionScript,
     Angular,
@@ -377,7 +377,7 @@ pub enum FileExtension {
     Zig,
 }
 
-impl FileExtension {
+impl FileFormat {
     fn from_path(path: &Path) -> Self {
         let file_name = path
             .file_name()

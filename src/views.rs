@@ -3,9 +3,7 @@ use std::io::{self, Write};
 use crossterm::{
     cursor::MoveTo,
     execute,
-    style::{
-        Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
-    },
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
 };
 use log::error;
 
@@ -52,7 +50,8 @@ impl View for FileTree<'_> {
     ) -> Result<(), io::Error> {
         let height = placement.height as usize;
         let scrollbar_x = placement.width - 1;
-        let scroll_offset = self.files.cursor().saturating_sub(height.saturating_sub(5));
+        let scroll_offset = self.files.cursor().saturating_sub(height / 2);
+        let show_scrollbar = self.files.visible().len() > height;
 
         for (file_id, y_offset) in self
             .files
@@ -66,7 +65,11 @@ impl View for FileTree<'_> {
             let file_area = Area {
                 x: placement.x,
                 y: placement.y + y_offset,
-                width: placement.width,
+                width: if show_scrollbar {
+                    placement.width - 1
+                } else {
+                    placement.width
+                },
                 height: 1,
             };
             let cursor = self.files.cursor() as u16 == y_offset + scroll_offset as u16;
@@ -79,15 +82,20 @@ impl View for FileTree<'_> {
             FileLine { file }.render(file_area, (foreground_color, background_color), stdout)?;
         }
 
-        if self.files.visible().len() > height {
-            for y in 0..placement.height {
-                execute!(stdout, MoveTo(scrollbar_x, y), Print("│"))?;
-            }
-
+        if show_scrollbar {
             let scroll_position =
                 (self.files.cursor() * height / self.files.visible().len()) as u16;
+            let scroll_resolution = (self.files.visible().len() / height + 1) as u16;
 
-            execute!(stdout, MoveTo(scrollbar_x, scroll_position), Print("█"))?;
+            for y in 0..placement.height {
+                if y + scroll_resolution > scroll_position
+                    && y.saturating_sub(scroll_resolution) < scroll_position
+                {
+                    execute!(stdout, MoveTo(scrollbar_x, y), Print("█"))?;
+                } else {
+                    execute!(stdout, MoveTo(scrollbar_x, y), Print("│"))?;
+                }
+            }
         }
 
         Ok(())
