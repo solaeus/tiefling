@@ -217,14 +217,14 @@ impl File {
         }
     }
 
-    pub fn icon_id_and_linked_path(&self) -> (IconId, Option<&PathBuf>) {
+    pub fn icon_id_and_linked_path(&self) -> (Option<IconId>, Option<&PathBuf>) {
         match &self.kind {
-            FileKind::Directory(Directory { expanded: true, .. }) => (IconId::EXPANDED, None),
+            FileKind::Directory(Directory { expanded: true, .. }) => (Some(IconId::EXPANDED), None),
             FileKind::Directory(Directory {
                 expanded: false, ..
-            }) => (IconId::COLLAPSED, None),
-            FileKind::Regular(format) => (IconId::from_format(*format), None),
-            FileKind::Symlink(linked_path) => (IconId::SYMLINK, Some(linked_path)),
+            }) => (Some(IconId::COLLAPSED), None),
+            FileKind::Regular(format) => (Some(IconId::from_format(*format)), None),
+            FileKind::Symlink(linked_path) => (None, Some(linked_path)),
         }
     }
 }

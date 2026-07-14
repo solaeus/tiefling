@@ -46,7 +46,6 @@ pub struct IconId(pub NonZero<u8>);
 impl IconId {
     pub const COLLAPSED: Self = Self(NonZero::new(1).unwrap());
     pub const EXPANDED: Self = Self(NonZero::new(2).unwrap());
-    pub const SYMLINK: Self = Self(NonZero::new(3).unwrap());
 }
 
 impl IconId {

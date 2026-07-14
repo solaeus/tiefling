@@ -147,7 +147,7 @@ impl View for FileLine<'_> {
             SetForegroundColor(Color::Rgb {
                 r: 0,
                 g: 0,
-                b: icon_id.inner()
+                b: icon_id.map(|id| id.inner()).unwrap_or(0)
             }),
             Print("\u{10EEEE}\u{10EEEE}"),
             SetForegroundColor(foreground_color),
