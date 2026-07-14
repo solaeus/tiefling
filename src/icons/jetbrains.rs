@@ -240,7 +240,7 @@ impl IconTheme for JetBrainsIconTheme {
         ),
         (
             IconId::from_format(FileFormat::Rust),
-            include_bytes!("../../assets/jetbrains_icons/rust.b64"),
+            include_bytes!("../../assets/jetbrains_icons/rustFile.b64"),
         ),
         (
             IconId::from_format(FileFormat::Scala),

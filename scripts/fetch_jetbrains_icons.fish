@@ -14,21 +14,14 @@ mkdir -p assets/jetbrains_icons
 for icon in $icons
     set format (string sub --start 2 --end -5 $icon | string split _dark)[1]
 
-    # Handle the non-conventional name of the rust icon
-    if test $format = rustFile
-        set output rust
-    else
-        set output $format
-    end
-
     echo "Fetching $format"
 
-    if curl -fsSL "$base_url/$format""_dark.svg" -o /tmp/$output.svg &>/dev/null
-        or curl -fsSL "$base_url/$format.svg" -o /tmp/$output.svg &>/dev/null
-        rsvg-convert /tmp/$output.svg -o /tmp/$output.png
-        base64 -w0 /tmp/$output.png >assets/jetbrains_icons/$output.b64
+    if curl -fsSL "$base_url/$format""_dark.svg" -o /tmp/$format.svg &>/dev/null
+        or curl -fsSL "$base_url/$format.svg" -o /tmp/$format.svg &>/dev/null
+        rsvg-convert /tmp/$format.svg -o /tmp/$format.png
+        base64 -w0 /tmp/$format.png >assets/jetbrains_icons/$format.b64
     else
-        set -a missing "jetbrains $output"
+        set -a missing "jetbrains $format"
     end
 end
 
