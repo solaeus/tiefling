@@ -317,7 +317,7 @@ fn load_kitty_icon(
         stdout.write_all(b"\x1b\\")?;
     }
 
-    write!(stdout, "\x1b_Ga=p,U=1,i={id},c=2,r=1\x1b\\")?;
+    write!(stdout, "\x1b_Ga=p,U=1,q=2,i={id},c=2,r=1\x1b\\")?;
 
     Ok(())
 }
